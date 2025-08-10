@@ -7,8 +7,15 @@ interface CuttingDiagramProps {
   units: string
 }
 
+interface GroupedLayout {
+  layout: SheetLayout
+  count: number
+  originalIndices: number[]
+}
+
 const CuttingDiagram: React.FC<CuttingDiagramProps> = ({ layouts, units }) => {
   const { t } = useLanguage();
+  
   const generateColor = (index: number): string => {
     const colors = [
       '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
@@ -23,19 +30,55 @@ const CuttingDiagram: React.FC<CuttingDiagramProps> = ({ layouts, units }) => {
     return Math.min(400 / maxDimension, 1)
   }
 
+  // Group identical layouts together - OPTIMIZED VERSION
+  const groupIdenticalLayouts = (layouts: SheetLayout[]): GroupedLayout[] => {
+    const groupsMap = new Map<string, GroupedLayout>()
+    
+    layouts.forEach((layout, index) => {
+      // Create a simple key for this layout based on dimensions and part arrangement
+      const layoutKey = `${layout.sheetWidth}x${layout.sheetHeight}-${layout.parts.length}-${layout.parts.map(p => `${p.width}x${p.height}`).sort().join(',')}`
+      
+      // O(1) lookup instead of O(n) search
+      const existingGroup = groupsMap.get(layoutKey)
+      
+      if (existingGroup) {
+        existingGroup.count++
+        existingGroup.originalIndices.push(index)
+      } else {
+        groupsMap.set(layoutKey, {
+          layout,
+          count: 1,
+          originalIndices: [index]
+        })
+      }
+    })
+    
+    return Array.from(groupsMap.values())
+  }
+
+  const groupedLayouts = groupIdenticalLayouts(layouts)
+
   return (
     <div className="cutting-diagrams">
       <h3>{t.cuttingDiagrams}</h3>
       <div className="diagrams-grid">
-        {layouts.map((layout, layoutIndex) => {
+        {groupedLayouts.map((groupedLayout, groupIndex) => {
+          const { layout, count } = groupedLayout
           const scale = getScale(layout)
           const svgWidth = layout.sheetWidth * scale
           const svgHeight = layout.sheetHeight * scale
 
           return (
-            <div key={layout.sheetId} className="diagram-container">
+            <div key={`group-${groupIndex}`} className="diagram-container">
               <div className="sheet-header">
-                <h4>{t.sheet} {layoutIndex + 1}</h4>
+                <h4>
+                  {t.sheet} {groupedLayout.originalIndices[0] + 1}
+                  {count > 1 && (
+                    <span className="sheet-count">
+                      {' '}(× {count} {t.panels})
+                    </span>
+                  )}
+                </h4>
                 <div className="sheet-size">
                   {t.size} {layout.sheetWidth} × {layout.sheetHeight} {units}
                 </div>
@@ -43,6 +86,11 @@ const CuttingDiagram: React.FC<CuttingDiagramProps> = ({ layouts, units }) => {
               <div className="sheet-info">
                 <span>
                   {t.parts} {layout.parts.length}
+                  {count > 1 && (
+                    <span className="total-parts">
+                      {' '}({t.total}: {layout.parts.length * count})
+                    </span>
+                  )}
                 </span>
               </div>
               
@@ -109,7 +157,7 @@ const CuttingDiagram: React.FC<CuttingDiagramProps> = ({ layouts, units }) => {
                 {/* Grid lines for reference */}
                 <defs>
                   <pattern
-                    id={`grid-${layoutIndex}`}
+                    id={`grid-${groupIndex}`}
                     width="50"
                     height="50"
                     patternUnits="userSpaceOnUse"
@@ -128,7 +176,7 @@ const CuttingDiagram: React.FC<CuttingDiagramProps> = ({ layouts, units }) => {
                   y="0"
                   width={layout.sheetWidth}
                   height={layout.sheetHeight}
-                  fill={`url(#grid-${layoutIndex})`}
+                  fill={`url(#grid-${groupIndex})`}
                 />
               </svg>
 
@@ -151,6 +199,11 @@ const CuttingDiagram: React.FC<CuttingDiagramProps> = ({ layouts, units }) => {
                         <div className="part-position">
                           {t.position} ({part.x}, {part.y})
                         </div>
+                        {count > 1 && (
+                          <div className="part-count">
+                            {t.quantity}: {count} {t.pieces}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

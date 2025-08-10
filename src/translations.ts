@@ -103,6 +103,8 @@ export interface Translations {
   partsOnSheet: string;
   position: string;
   rotated: string;
+  panels: string;
+  total: string;
 
   // Excel Import
   importFromExcel: string;
@@ -228,6 +230,8 @@ export const translations: Record<Language, Translations> = {
     partsOnSheet: "Parts on this sheet:",
     position: "Position:",
     rotated: "(rotated)",
+    panels: "panels",
+    total: "total",
 
     // Excel Import
     importFromExcel: "Import from Excel",
@@ -352,6 +356,8 @@ export const translations: Record<Language, Translations> = {
     partsOnSheet: "Mảnh trên tấm này:",
     position: "Vị trí:",
     rotated: "(đã xoay)",
+    panels: "tấm",
+    total: "tổng",
 
     // Excel Import
     importFromExcel: "Nhập từ Excel",
@@ -376,5 +382,11 @@ export const translations: Record<Language, Translations> = {
 };
 
 export const getTranslation = (language: Language): Translations => {
-  return translations[language];
+  try {
+    return translations[language];
+  } catch (error) {
+    console.error('Translation error:', error);
+    // Fallback to English if there's an issue
+    return translations.en;
+  }
 };

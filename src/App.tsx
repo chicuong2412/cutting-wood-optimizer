@@ -10,6 +10,12 @@ import jsPDF from 'jspdf'
 
 function App() {
   const { language, setLanguage, t } = useLanguage();
+  
+  // Add error boundary
+  if (!t) {
+    console.error('Translations not loaded');
+    return <div>Loading...</div>;
+  }
 
   // Keyboard navigation handler
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, tableType: 'stock' | 'required', rowIndex: number, fieldName: string) => {
@@ -725,7 +731,33 @@ function App() {
     const pdf = new jsPDF('landscape', 'mm', 'a4')
     let isFirstPage = true
 
-    const generateCuttingPage = (layout: any, sheetIndex: number) => {
+    // Group identical layouts for PDF export (same logic as CuttingDiagram)
+    const groupIdenticalLayouts = (layouts: any[]) => {
+      const groupsMap = new Map<string, { layout: any; count: number; originalIndices: number[] }>()
+      
+      layouts.forEach((layout, index) => {
+        const layoutKey = `${layout.sheetWidth}x${layout.sheetHeight}-${layout.parts.length}-${layout.parts.map((p: any) => `${p.width}x${p.height}`).sort().join(',')}`
+        
+        const existingGroup = groupsMap.get(layoutKey)
+        
+        if (existingGroup) {
+          existingGroup.count++
+          existingGroup.originalIndices.push(index)
+        } else {
+          groupsMap.set(layoutKey, {
+            layout,
+            count: 1,
+            originalIndices: [index]
+          })
+        }
+      })
+      
+      return Array.from(groupsMap.values())
+    }
+
+    const groupedLayouts = groupIdenticalLayouts(results.layouts)
+
+    const generateCuttingPage = (layout: any, sheetIndex: number, count: number) => {
       // Create canvas for generating the cutting diagram image
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')!
@@ -753,11 +785,12 @@ function App() {
       ctx.fillStyle = '#2c3e50'
       ctx.font = 'bold 32px Arial'
       ctx.textAlign = 'center'
-      ctx.fillText(
-        `Sheet ${sheetIndex + 1}: ${layout.sheetWidth} × ${layout.sheetHeight} ${settings.units}`,
-        canvasWidth / 2,
-        50
-      )
+      
+      const title = count > 1 
+        ? `Sheet ${sheetIndex + 1} (×${count} panels): ${layout.sheetWidth} × ${layout.sheetHeight} ${settings.units}`
+        : `Sheet ${sheetIndex + 1}: ${layout.sheetWidth} × ${layout.sheetHeight} ${settings.units}`
+      
+      ctx.fillText(title, canvasWidth / 2, 50)
       
       // Draw sheet outline
       ctx.strokeStyle = '#2c3e50'
@@ -843,21 +876,24 @@ function App() {
       ctx.textAlign = 'left'
       const statsY = canvasHeight - 120
       ctx.fillText(`📊 Statistics:`, 40, statsY)
-      ctx.fillText(`• Parts: ${layout.parts.length}`, 40, statsY + 30)
+      ctx.fillText(`• Parts: ${layout.parts.length}${count > 1 ? ` (×${count} = ${layout.parts.length * count} total)` : ''}`, 40, statsY + 30)
       ctx.fillText(`• Efficiency: ${efficiency}%`, 40, statsY + 60)
-      ctx.fillText(`• Waste: ${wasteArea.toFixed(0)} ${settings.units}²`, 40, statsY + 90)
+      ctx.fillText(`• Waste: ${wasteArea.toFixed(0)} ${settings.units}²${count > 1 ? ` (×${count} = ${(wasteArea * count).toFixed(0)} total)` : ''}`, 40, statsY + 90)
       
       // Add cutting notes
       ctx.textAlign = 'right'
       ctx.fillText(`⚠️ Remember ${settings.kerf}${settings.units} kerf`, canvasWidth - 40, statsY)
       ctx.fillText(`📐 Start from top-left corner`, canvasWidth - 40, statsY + 30)
       ctx.fillText(`✓ Double-check before cutting`, canvasWidth - 40, statsY + 60)
+      if (count > 1) {
+        ctx.fillText(`🔄 Cut this layout ${count} times`, canvasWidth - 40, statsY + 90)
+      }
       
       return canvas
     }
 
-    // Process each layout
-    results.layouts.forEach((layout, sheetIndex) => {
+    // Process each grouped layout (only unique layouts)
+    groupedLayouts.forEach((group, groupIndex) => {
       // Add new page for each sheet (except first)
       if (!isFirstPage) {
         pdf.addPage()
@@ -865,7 +901,7 @@ function App() {
       isFirstPage = false
 
       // Generate canvas for this layout
-      const canvas = generateCuttingPage(layout, sheetIndex)
+      const canvas = generateCuttingPage(group.layout, groupIndex, group.count)
       
       // Convert canvas to image data and add to PDF
       const imgData = canvas.toDataURL('image/png', 1.0)
@@ -887,11 +923,10 @@ function App() {
       // Add footer with sheet info
       pdf.setFontSize(10)
       pdf.setTextColor(100)
-      pdf.text(
-        `Generated on ${new Date().toLocaleString()} | Sheet ${sheetIndex + 1} of ${results.layouts.length}`,
-        margin,
-        pdfHeight - 5
-      )
+      const footerText = group.count > 1 
+        ? `Generated on ${new Date().toLocaleString()} | Sheet ${groupIndex + 1} (×${group.count} panels) of ${groupedLayouts.length} unique layouts`
+        : `Generated on ${new Date().toLocaleString()} | Sheet ${groupIndex + 1} of ${groupedLayouts.length} layouts`
+      pdf.text(footerText, margin, pdfHeight - 5)
     })
 
     // Save the PDF
